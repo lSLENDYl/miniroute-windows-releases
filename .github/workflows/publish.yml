@@ -1,0 +1,68 @@
+name: Publish verified MiniRoute release
+on:
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: Draft release ID
+        required: false
+        type: string
+      windows_tested:
+        description: Exact Windows artifact manually accepted
+        type: boolean
+        default: false
+      android_tested:
+        description: Exact Android artifact manually accepted
+        type: boolean
+        default: false
+      self_test:
+        description: Validate signing setup without upload or publication
+        type: boolean
+        default: false
+permissions:
+  contents: write
+concurrency:
+  group: miniroute-public-release
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.26.9'
+          cache: false
+      - name: Verify publisher before exposing signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -L release-tools/feed.go
+          test ! -L release-tools/publish.go
+          echo 'ebabd59e632092ec4a6e29037830c090eb047a17dcca39084d076fd852dff56a  release-tools/feed.go' | sha256sum --check --strict
+          echo '2158922df35e0c90f8e334228d98253169aa7739dcecfc4b773160eec8acfa64  release-tools/publish.go' | sha256sum --check --strict
+          mkdir -p "$RUNNER_TEMP/miniroute-publisher"
+          cp release-tools/feed.go release-tools/publish.go "$RUNNER_TEMP/miniroute-publisher/"
+      - name: Verify build, sign feed and publish only by explicit request
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MINIROUTE_FEED_SIGNING_KEY: ${{ secrets.MINIROUTE_FEED_SIGNING_KEY }}
+          MINIROUTE_REPOSITORY: 'lSLENDYl/miniroute-windows-releases'
+          MINIROUTE_PLATFORM: 'windows'
+          MINIROUTE_FEED_PUBLIC_KEY: 'TP8iVf8QO5C0LrGrGDg8lWBBw7Q9LLp7tATt7pZITn0='
+          MINIROUTE_BUILD_PUBLIC_KEY: 'gPNsxqQddn+P1qFgHVe9YwXZscRGRjOITTyrAtUZtho='
+          MINIROUTE_RELEASE_ID: ${{ inputs.release_id }}
+          MINIROUTE_WINDOWS_TESTED: ${{ inputs.windows_tested }}
+          MINIROUTE_ANDROID_TESTED: ${{ inputs.android_tested }}
+          MINIROUTE_SELF_TEST: ${{ inputs.self_test }}
+          GO111MODULE: 'off'
+          GOWORK: 'off'
+          GOTOOLCHAIN: local
+          CGO_ENABLED: '0'
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/miniroute-publisher"
+          go run feed.go publish.go
